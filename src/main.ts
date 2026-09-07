@@ -1,5 +1,6 @@
 import "./style.css";
 import { closeMic, openMic, peakLevel, type MicSession } from "./lib/audio";
+import { prepareCapture } from "./lib/audio-prep";
 import { cleanTranscript } from "./lib/cleanup";
 import { loadGlossary, saveGlossary } from "./lib/glossary";
 import {
@@ -10,6 +11,14 @@ import {
   type SessionRow,
   type WorkerOut,
 } from "./lib/types";
+
+function loadModel(): ModelId {
+  const stored = localStorage.getItem("stt-mini.model.v2") as ModelId | null;
+  if (stored === "tiny.en" || stored === "tiny" || stored === "base.en" || stored === "small.en") {
+    return stored;
+  }
+  return "small.en";
+}
 
 function requireEl<T extends HTMLElement>(selector: string): T {
   const el = document.querySelector<T>(selector);
@@ -22,7 +31,7 @@ const coarse = window.matchMedia("(pointer: coarse)").matches;
 
 const state = {
   status: "booting" as AppStatus,
-  model: (localStorage.getItem("stt-mini.model") as ModelId) || "tiny.en",
+  model: loadModel(),
   device: "—",
   progress: 0,
   progressLabel: "Starting worker",
@@ -146,26 +155,31 @@ function stopListen() {
   document.querySelectorAll<HTMLButtonElement>(".mic").forEach((btn) => {
     btn.style.setProperty("--level", "0.72");
   });
-  if (captured.seconds < 0.35) {
+  const prepared = prepareCapture(captured.audio, captured.sampleRate);
+  if (!prepared.ok) {
     state.status = "ready";
-    state.error = "Clip was too short. Talk a little longer.";
+    state.error =
+      prepared.reason === "too-quiet"
+        ? "Not enough speech. Talk closer to the mic at a normal volume."
+        : "Clip was too short. Talk a little longer.";
     paintMic();
     return;
   }
+  state.lastSeconds = prepared.seconds;
   state.status = "transcribing";
   state.progressLabel = "Transcribing on-device…";
   paintMic();
-  const samples = new Float32Array(captured.audio);
+  const samples = new Float32Array(prepared.audio);
   worker.postMessage({
     type: "transcribe",
     audio: samples,
-    sampleRate: captured.sampleRate,
+    sampleRate: prepared.sampleRate,
   });
 }
 
 function setModel(model: ModelId) {
   state.model = model;
-  localStorage.setItem("stt-mini.model", model);
+  localStorage.setItem("stt-mini.model.v2", model);
   state.status = "loading-model";
   state.progress = 0;
   state.progressLabel = "Loading model";
@@ -228,7 +242,7 @@ function render() {
           <label for="model">Model</label>
           <select id="model">
             ${
-              (["tiny.en", "tiny", "base.en"] as ModelId[])
+              (["small.en", "base.en", "tiny.en", "tiny"] as ModelId[])
                 .map(
                   (id) =>
                     `<option value="${id}" ${id === state.model ? "selected" : ""}>${id} — ${MODEL_NOTES[id]}</option>`,
@@ -236,7 +250,7 @@ function render() {
                 .join("")
             }
           </select>
-          <p class="hint">Tiny is the default. Base is slower and better on names.</p>
+          <p class="hint">small.en is the default. First load is larger; accuracy is much closer to usable dictation.</p>
         </div>
 
         <div class="mic-wrap desk-mic">
@@ -276,7 +290,7 @@ function render() {
         <div class="outputs show-${state.tab}">
           <div class="col">
             <h2>Raw</h2>
-            <pre>${escapeHtml(state.raw) || " " }</pre>
+            <pre>${escapeHtml(state.raw) || " "}</pre>
           </div>
           <div class="col">
             <h2>Cleaned</h2>
