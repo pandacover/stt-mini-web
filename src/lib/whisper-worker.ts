@@ -5,11 +5,8 @@ import { MODEL_REPOS, type ModelId, type WorkerIn, type WorkerOut } from "./type
 
 env.allowLocalModels = false;
 env.useBrowserCache = true;
-try {
-  env.backends.onnx.wasm.numThreads = 1;
-} catch {
-  // Older runtimes may not expose this knob.
-}
+const wasmBackend = env.backends.onnx?.wasm;
+if (wasmBackend) wasmBackend.numThreads = 1;
 
 type AsrPipe = (
   audio: Float32Array,
