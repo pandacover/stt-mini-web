@@ -1,9 +1,15 @@
 import { env, pipeline } from "@huggingface/transformers";
 import { asFloat32, asrGenerateOptions } from "./asr";
+import { loadFallbackOrder } from "./runtime";
 import { MODEL_REPOS, type ModelId, type WorkerIn, type WorkerOut } from "./types";
 
 env.allowLocalModels = false;
 env.useBrowserCache = true;
+try {
+  env.backends.onnx.wasm.numThreads = 1;
+} catch {
+  // Older runtimes may not expose this knob.
+}
 
 type AsrPipe = (
   audio: Float32Array,
@@ -12,22 +18,28 @@ type AsrPipe = (
 
 let pipe: AsrPipe | null = null;
 let loadedModel: ModelId | null = null;
-let deviceLabel = "wasm";
+let deviceLabel = "wasm/q8";
 
 function post(msg: WorkerOut) {
   self.postMessage(msg);
 }
 
-async function pickDevice(): Promise<"webgpu" | "wasm"> {
-  try {
-    const gpu = (self as unknown as { navigator?: { gpu?: { requestAdapter: () => Promise<unknown> } } })
-      .navigator?.gpu;
-    if (!gpu) return "wasm";
-    const adapter = await gpu.requestAdapter();
-    return adapter ? "webgpu" : "wasm";
-  } catch {
-    return "wasm";
-  }
+async function loadOne(model: ModelId) {
+  const repo = MODEL_REPOS[model];
+  return (await pipeline("automatic-speech-recognition", repo, {
+    device: "wasm",
+    dtype: "q8",
+    progress_callback: (info: { status: string; progress?: number; file?: string }) => {
+      const progress = Math.round(info.progress ?? 0);
+      if (progress % 10 !== 0 && progress < 100) return;
+      post({
+        type: "progress",
+        status: info.status,
+        progress,
+        file: info.file,
+      });
+    },
+  })) as unknown as AsrPipe;
 }
 
 async function load(model: ModelId) {
@@ -36,25 +48,24 @@ async function load(model: ModelId) {
     return;
   }
 
-  const device = await pickDevice();
-  deviceLabel = device;
-  const repo = MODEL_REPOS[model];
+  let lastError: unknown;
+  for (const candidate of loadFallbackOrder(model)) {
+    try {
+      post({ type: "progress", status: `loading ${candidate}`, progress: 0 });
+      pipe = await loadOne(candidate);
+      loadedModel = candidate;
+      deviceLabel = candidate === model ? "wasm/q8" : `wasm/q8 · fell back to ${candidate}`;
+      post({ type: "ready", model: candidate, device: deviceLabel });
+      return;
+    } catch (err) {
+      lastError = err;
+      pipe = null;
+      loadedModel = null;
+    }
+  }
 
-  pipe = (await pipeline("automatic-speech-recognition", repo, {
-    device,
-    dtype: device === "webgpu" ? "fp16" : "q8",
-    progress_callback: (info: { status: string; progress?: number; file?: string }) => {
-      post({
-        type: "progress",
-        status: info.status,
-        progress: Math.round(info.progress ?? 0),
-        file: info.file,
-      });
-    },
-  })) as unknown as AsrPipe;
-
-  loadedModel = model;
-  post({ type: "ready", model, device: deviceLabel });
+  const message = lastError instanceof Error ? lastError.message : String(lastError);
+  post({ type: "error", message: `Could not load a Whisper model. ${message}` });
 }
 
 async function transcribe(audio: unknown, _sampleRate: number) {

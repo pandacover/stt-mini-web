@@ -10,8 +10,8 @@ export const MODEL_REPOS: Record<ModelId, string> = {
 export const MODEL_NOTES: Record<ModelId, string> = {
   "tiny.en": "~40MB · English · fastest, weakest",
   tiny: "~40MB · 99 languages · still light",
-  "base.en": "~75MB · English · mid quality",
-  "small.en": "~150MB · English · default, closest to usable dictation",
+  "base.en": "~75MB · English · default, stable in a tab",
+  "small.en": "~150MB · English · desktop only, can crash phones",
 };
 
 export type AppStatus =
