@@ -11,8 +11,13 @@ import {
   type WorkerOut,
 } from "./lib/types";
 
-const app = document.querySelector<HTMLDivElement>("#app");
-if (!app) throw new Error("#app missing");
+function requireEl<T extends HTMLElement>(selector: string): T {
+  const el = document.querySelector<T>(selector);
+  if (!el) throw new Error(`Missing ${selector}`);
+  return el;
+}
+
+const app = requireEl<HTMLDivElement>("#app");
 
 const state = {
   status: "booting" as AppStatus,
@@ -154,9 +159,9 @@ function copy(text: string) {
 
 function escapeHtml(value: string) {
   return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
+    .replaceAll("&", "&")
+    .replaceAll("<", "<")
+    .replaceAll(">", ">");
 }
 
 function render() {
