@@ -1,4 +1,5 @@
 import { env, pipeline } from "@huggingface/transformers";
+import { asFloat32, asrGenerateOptions } from "./asr";
 import { MODEL_REPOS, type ModelId, type WorkerIn, type WorkerOut } from "./types";
 
 env.allowLocalModels = false;
@@ -6,7 +7,7 @@ env.useBrowserCache = true;
 
 type AsrPipe = (
   audio: Float32Array,
-  opts: { language?: string; task: "transcribe"; return_timestamps: boolean },
+  opts: ReturnType<typeof asrGenerateOptions>,
 ) => Promise<{ text: string }>;
 
 let pipe: AsrPipe | null = null;
@@ -15,19 +16,6 @@ let deviceLabel = "wasm";
 
 function post(msg: WorkerOut) {
   self.postMessage(msg);
-}
-
-function asFloat32(data: unknown): Float32Array {
-  if (data instanceof Float32Array) return data;
-  if (data instanceof Float64Array) return Float32Array.from(data);
-  if (data instanceof ArrayBuffer) return new Float32Array(data);
-  if (ArrayBuffer.isView(data)) {
-    return new Float32Array(data.buffer, data.byteOffset, Math.floor(data.byteLength / 4));
-  }
-  if (data && typeof data === "object" && "length" in data) {
-    return Float32Array.from(data as ArrayLike<number>);
-  }
-  throw new Error("Audio payload was not numeric samples.");
 }
 
 async function pickDevice(): Promise<"webgpu" | "wasm"> {
@@ -76,12 +64,7 @@ async function transcribe(audio: unknown, _sampleRate: number) {
   }
   const samples = asFloat32(audio);
   const t0 = performance.now();
-  const language = loadedModel.endsWith(".en") ? "en" : undefined;
-  const result = await pipe(samples, {
-    language,
-    task: "transcribe",
-    return_timestamps: false,
-  });
+  const result = await pipe(samples, asrGenerateOptions(loadedModel));
   post({
     type: "result",
     text: (result.text ?? "").trim(),

@@ -6,6 +6,7 @@
   "description": "Local-first in-browser dictation testbed. Whisper runs in the tab.",
   "scripts": {
     "dev": "vite",
+    "test": "node --experimental-strip-types --test src/lib/asr.test.ts",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview"
   },
