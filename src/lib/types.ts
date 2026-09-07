@@ -1,15 +1,17 @@
-export type ModelId = "tiny.en" | "tiny" | "base.en";
+export type ModelId = "tiny.en" | "tiny" | "base.en" | "small.en";
 
 export const MODEL_REPOS: Record<ModelId, string> = {
   "tiny.en": "Xenova/whisper-tiny.en",
   tiny: "Xenova/whisper-tiny",
   "base.en": "Xenova/whisper-base.en",
+  "small.en": "Xenova/whisper-small.en",
 };
 
 export const MODEL_NOTES: Record<ModelId, string> = {
-  "tiny.en": "~40MB · English · fastest",
+  "tiny.en": "~40MB · English · fastest, weakest",
   tiny: "~40MB · 99 languages · still light",
-  "base.en": "~75MB · English · better names & jargon",
+  "base.en": "~75MB · English · mid quality",
+  "small.en": "~150MB · English · default, closest to usable dictation",
 };
 
 export type AppStatus =

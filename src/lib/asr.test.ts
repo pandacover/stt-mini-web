@@ -4,7 +4,7 @@ import { asFloat32, asrGenerateOptions, isEnglishOnlyModel } from "./asr.ts";
 
 describe("asrGenerateOptions", () => {
   it("does not send task or language to English-only Whisper models", () => {
-    for (const model of ["tiny.en", "base.en"] as const) {
+    for (const model of ["tiny.en", "base.en", "small.en"] as const) {
       const opts = asrGenerateOptions(model);
       assert.equal(isEnglishOnlyModel(model), true);
       assert.deepEqual(opts, { return_timestamps: false });

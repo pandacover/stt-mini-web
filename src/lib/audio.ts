@@ -15,7 +15,7 @@ export async function openMic(): Promise<MicSession> {
       channelCount: 1,
       echoCancellation: true,
       noiseSuppression: true,
-      autoGainControl: true,
+      autoGainControl: false,
     },
   });
 
