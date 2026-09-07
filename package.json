@@ -1,0 +1,19 @@
+{
+  "name": "stt-mini-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Local-first in-browser dictation testbed. Whisper runs in the tab.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^3.8.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "vite": "^7.1.5"
+  }
+}
