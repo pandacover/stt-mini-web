@@ -28,8 +28,11 @@ export async function openMic(): Promise<MicSession> {
     chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
   };
 
+  const mute = context.createGain();
+  mute.gain.value = 0;
   source.connect(processor);
-  processor.connect(context.destination);
+  processor.connect(mute);
+  mute.connect(context.destination);
 
   return { stream, context, source, processor, chunks, startedAt: performance.now() };
 }
