@@ -25,6 +25,29 @@ Open the printed localhost URL. Chrome or Edge is the most reliable path for Web
 
 First load downloads `Xenova/whisper-tiny.en` (~40 MB). After that it should start from cache.
 
+## Deploy on Vercel
+
+Yes. This is a static Vite app. Vercel only hosts the page and JS. Whisper still runs in the visitor's browser.
+
+1. Import [pandacover/stt-mini-web](https://github.com/pandacover/stt-mini-web) in Vercel.
+2. Leave the defaults: Framework **Vite**, build `npm run build`, output `dist`.
+3. Deploy. Mic access needs HTTPS, which Vercel already gives you.
+
+Or from the repo:
+
+```bash
+npm i -g vercel
+vercel
+```
+
+What Vercel does *not* do:
+
+- It does not transcribe audio on a server.
+- It does not ship the 40–75 MB model inside the deployment. The first visit still fetches weights from Hugging Face and caches them in the browser.
+- WebGPU is still Chrome/Edge-only. Safari falls back to WASM.
+
+Do not turn on Cross-Origin Isolation (`COOP`/`COEP`) on the Vercel project unless you also vendor ONNX WASM with the right `Cross-Origin-Resource-Policy` headers. The current build does not need it.
+
 ## Models
 
 | Id | Why it is there |
