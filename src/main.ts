@@ -18,6 +18,7 @@ function requireEl<T extends HTMLElement>(selector: string): T {
 }
 
 const app = requireEl<HTMLDivElement>("#app");
+const coarse = window.matchMedia("(pointer: coarse)").matches;
 
 const state = {
   status: "booting" as AppStatus,
@@ -28,11 +29,11 @@ const state = {
   raw: "",
   clean: "",
   error: "",
-  level: 0,
   lastMs: 0,
   lastSeconds: 0,
   glossary: loadGlossary(),
   history: [] as SessionRow[],
+  tab: "clean" as "clean" | "raw",
 };
 
 let mic: MicSession | null = null;
@@ -91,22 +92,44 @@ function fileName(path: string) {
 }
 
 function canRecord() {
-  return state.status === "ready" || state.status === "listening";
+  return state.status === "ready" || state.status === "listening" || state.status === "error";
+}
+
+function micLabel() {
+  if (state.status === "listening") return coarse ? "Tap to stop" : "Release";
+  if (state.status === "transcribing") return "Wait";
+  return coarse ? "Tap to talk" : "Hold";
+}
+
+function paintMic() {
+  document.querySelectorAll<HTMLButtonElement>(".mic").forEach((btn) => {
+    btn.classList.toggle("listening", state.status === "listening");
+    btn.disabled = !canRecord() || state.status === "transcribing";
+    btn.textContent = micLabel();
+  });
+  document.querySelectorAll(".status").forEach((el) => {
+    el.textContent = statusLine();
+  });
+  document.querySelectorAll(".error").forEach((el) => {
+    el.textContent = state.error;
+  });
 }
 
 async function startListen() {
-  if (!canRecord() || mic) return;
+  if (state.status === "listening" || mic) return;
+  if (state.status === "transcribing" || state.status === "loading-model" || state.status === "booting") return;
   state.error = "";
   try {
     mic = await openMic();
     state.status = "listening";
+    paintMic();
     meterTimer = window.setInterval(() => {
       if (!mic) return;
-      state.level = peakLevel(mic.chunks);
-      const button = document.querySelector<HTMLButtonElement>(".mic");
-      if (button) button.style.setProperty("--level", String(0.7 + Math.min(state.level, 1) * 0.45));
+      const level = peakLevel(mic.chunks);
+      document.querySelectorAll<HTMLButtonElement>(".mic").forEach((btn) => {
+        btn.style.setProperty("--level", String(0.7 + Math.min(level, 1) * 0.45));
+      });
     }, 80);
-    render();
   } catch (err) {
     state.status = "error";
     state.error = err instanceof Error ? err.message : "Microphone permission denied.";
@@ -120,20 +143,24 @@ function stopListen() {
   mic = null;
   window.clearInterval(meterTimer);
   state.lastSeconds = captured.seconds;
-  state.level = 0;
+  document.querySelectorAll<HTMLButtonElement>(".mic").forEach((btn) => {
+    btn.style.setProperty("--level", "0.72");
+  });
   if (captured.seconds < 0.35) {
     state.status = "ready";
-    state.error = "Clip was too short. Hold a little longer.";
-    render();
+    state.error = "Clip was too short. Talk a little longer.";
+    paintMic();
     return;
   }
   state.status = "transcribing";
   state.progressLabel = "Transcribing on-device…";
-  render();
-  worker.postMessage(
-    { type: "transcribe", audio: captured.audio, sampleRate: captured.sampleRate },
-    [captured.audio.buffer],
-  );
+  paintMic();
+  const samples = new Float32Array(captured.audio);
+  worker.postMessage({
+    type: "transcribe",
+    audio: samples,
+    sampleRate: captured.sampleRate,
+  });
 }
 
 function setModel(model: ModelId) {
@@ -164,15 +191,35 @@ function escapeHtml(value: string) {
     .replaceAll(">", ">");
 }
 
+function bindMic(btn: HTMLButtonElement) {
+  btn.addEventListener("pointerdown", (e) => {
+    if (btn.disabled) return;
+    e.preventDefault();
+    btn.setPointerCapture(e.pointerId);
+    if (coarse) {
+      if (state.status === "listening") stopListen();
+      else void startListen();
+      return;
+    }
+    void startListen();
+  });
+  btn.addEventListener("pointerup", () => {
+    if (!coarse) stopListen();
+  });
+  btn.addEventListener("pointercancel", () => {
+    if (!coarse) stopListen();
+  });
+}
+
 function render() {
-  const disabled = !canRecord();
+  const disabled = !canRecord() || state.status === "transcribing";
   app.innerHTML = `
     <header class="top">
       <div>
         <h1>stt-<em>mini</em></h1>
         <p class="lede">Hold the pad or Space, talk, release. Whisper runs in this tab. The recording is discarded after transcription.</p>
       </div>
-      <div class="privacy">Local-first testbed. Model weights download once from Hugging Face and cache in the browser. Your audio is not uploaded.</div>
+      <div class="privacy">Local-first. Model weights download once. Audio stays on this device.</div>
     </header>
 
     <div class="grid">
@@ -189,20 +236,20 @@ function render() {
                 .join("")
             }
           </select>
-          <p class="hint">Tiny is the right default for a prototype. Base is slower and sharper on names.</p>
+          <p class="hint">Tiny is the default. Base is slower and better on names.</p>
         </div>
 
-        <div class="mic-wrap">
+        <div class="mic-wrap desk-mic">
           <button class="mic ${state.status === "listening" ? "listening" : ""}" type="button" ${disabled ? "disabled" : ""}>
-            ${state.status === "listening" ? "Release" : "Hold"}
+            ${micLabel()}
           </button>
           <div class="status">${escapeHtml(statusLine())}</div>
         </div>
         <div class="meter"><span style="width:${state.progress}%"></span></div>
         <p class="error">${escapeHtml(state.error)}</p>
 
-        <div class="row" style="margin-top:18px">
-          <label>Glossary</label>
+        <details class="settings-block" ${coarse ? "" : "open"}>
+          <summary>Glossary</summary>
           <div class="glossary">
             ${
               state.glossary
@@ -218,14 +265,18 @@ function render() {
             }
             <button class="btn" type="button" id="add-term">Add term</button>
           </div>
-        </div>
+        </details>
       </aside>
 
       <section class="panel">
-        <div class="outputs">
+        <div class="tabs">
+          <button class="btn ${state.tab === "clean" ? "active" : ""}" type="button" id="tab-clean">Cleaned</button>
+          <button class="btn ${state.tab === "raw" ? "active" : ""}" type="button" id="tab-raw">Raw</button>
+        </div>
+        <div class="outputs show-${state.tab}">
           <div class="col">
             <h2>Raw</h2>
-            <pre>${escapeHtml(state.raw) || " "}</pre>
+            <pre>${escapeHtml(state.raw) || " " }</pre>
           </div>
           <div class="col">
             <h2>Cleaned</h2>
@@ -248,7 +299,7 @@ function render() {
           <ol>
             ${
               state.history.length === 0
-                ? `<li><time>nothing yet</time>Hold Space and say a product name from the glossary.</li>`
+                ? `<li><time>nothing yet</time>${coarse ? "Tap the orange pad and talk." : "Hold Space and talk."}</li>`
                 : state.history
                     .slice(0, 8)
                     .map(
@@ -264,21 +315,20 @@ function render() {
         </div>
       </section>
     </div>
+
+    <div class="dock">
+      <button class="mic ${state.status === "listening" ? "listening" : ""}" type="button" ${disabled ? "disabled" : ""}>
+        ${micLabel()}
+      </button>
+      <div class="status">${escapeHtml(statusLine())}</div>
+    </div>
   `;
 
   app.querySelector<HTMLSelectElement>("#model")?.addEventListener("change", (e) => {
     setModel((e.target as HTMLSelectElement).value as ModelId);
   });
 
-  const micBtn = app.querySelector<HTMLButtonElement>(".mic");
-  micBtn?.addEventListener("pointerdown", (e) => {
-    e.preventDefault();
-    void startListen();
-  });
-  micBtn?.addEventListener("pointerup", () => stopListen());
-  micBtn?.addEventListener("pointerleave", () => {
-    if (state.status === "listening") stopListen();
-  });
+  app.querySelectorAll<HTMLButtonElement>(".mic").forEach(bindMic);
 
   app.querySelector("#copy-clean")?.addEventListener("click", () => copy(state.clean || state.raw));
   app.querySelector("#copy-raw")?.addEventListener("click", () => copy(state.raw));
@@ -289,6 +339,14 @@ function render() {
   });
   app.querySelector("#add-term")?.addEventListener("click", () => {
     updateGlossary([...state.glossary, { from: "", to: "" }]);
+  });
+  app.querySelector("#tab-clean")?.addEventListener("click", () => {
+    state.tab = "clean";
+    render();
+  });
+  app.querySelector("#tab-raw")?.addEventListener("click", () => {
+    state.tab = "raw";
+    render();
   });
   app.querySelectorAll(".g-row input").forEach((input) => {
     input.addEventListener("change", () => {
@@ -315,7 +373,7 @@ function statusLine() {
     case "loading-model":
       return state.progressLabel;
     case "ready":
-      return "Ready · hold Space";
+      return coarse ? "Ready · tap the pad" : "Ready · hold Space";
     case "listening":
       return "Listening";
     case "transcribing":
@@ -330,12 +388,12 @@ function isTypingTarget(el: EventTarget | null) {
 }
 
 window.addEventListener("keydown", (e) => {
-  if (e.code !== "Space" || e.repeat || isTypingTarget(e.target)) return;
+  if (e.code !== "Space" || e.repeat || isTypingTarget(e.target) || coarse) return;
   e.preventDefault();
   void startListen();
 });
 window.addEventListener("keyup", (e) => {
-  if (e.code !== "Space" || isTypingTarget(e.target)) return;
+  if (e.code !== "Space" || isTypingTarget(e.target) || coarse) return;
   e.preventDefault();
   stopListen();
 });
