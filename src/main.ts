@@ -1,6 +1,7 @@
 import "./style.css";
 import { closeMic, openMic, peakLevel, type MicSession } from "./lib/audio";
 import { prepareCapture } from "./lib/audio-prep";
+import { recommendModel } from "./lib/runtime";
 import { cleanTranscript } from "./lib/cleanup";
 import { loadGlossary, saveGlossary } from "./lib/glossary";
 import {
@@ -12,12 +13,18 @@ import {
   type WorkerOut,
 } from "./lib/types";
 
+function deviceBits() {
+  const nav = navigator as Navigator & { deviceMemory?: number };
+  return {
+    saved: localStorage.getItem("stt-mini.model.v2"),
+    coarse: window.matchMedia("(pointer: coarse)").matches,
+    memoryGiB: nav.deviceMemory,
+    userAgent: navigator.userAgent,
+  };
+}
+
 function loadModel(): ModelId {
-  const stored = localStorage.getItem("stt-mini.model.v2") as ModelId | null;
-  if (stored === "tiny.en" || stored === "tiny" || stored === "base.en" || stored === "small.en") {
-    return stored;
-  }
-  return "small.en";
+  return recommendModel(deviceBits());
 }
 
 function requireEl<T extends HTMLElement>(selector: string): T {
@@ -62,6 +69,7 @@ worker.onmessage = (event: MessageEvent<WorkerOut>) => {
   }
   if (msg.type === "ready") {
     state.status = "ready";
+    state.model = msg.model;
     state.device = msg.device;
     state.progress = 100;
     state.progressLabel = `Ready on ${msg.device}`;
@@ -242,7 +250,7 @@ function render() {
           <label for="model">Model</label>
           <select id="model">
             ${
-              (["small.en", "base.en", "tiny.en", "tiny"] as ModelId[])
+              (["base.en", "tiny.en", "tiny", "small.en"] as ModelId[])
                 .map(
                   (id) =>
                     `<option value="${id}" ${id === state.model ? "selected" : ""}>${id} — ${MODEL_NOTES[id]}</option>`,
@@ -250,7 +258,7 @@ function render() {
                 .join("")
             }
           </select>
-          <p class="hint">small.en is the default. First load is larger; accuracy is much closer to usable dictation.</p>
+          <p class="hint">base.en is the default so phones do not run out of memory. small.en is sharper on a desktop with RAM to spare.</p>
         </div>
 
         <div class="mic-wrap desk-mic">
